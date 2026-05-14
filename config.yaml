@@ -1,0 +1,36 @@
+# Data
+data_dir: data/
+labels_csv: data/labels.csv
+splits_csv: data/splits.csv
+
+# Audio Processing
+sample_rate: 22050
+n_mels: 128
+n_fft: 1024
+hop_length: 512
+max_duration: 5  # seconds, clips trimmed/padded to this
+
+# Classes
+classes:
+  - healthy
+  - covid19
+  - asthma
+  - copd
+  - pneumonia
+  - tuberculosis
+
+# Training
+epochs: 50
+batch_size: 32
+learning_rate: 0.001
+val_split: 0.15
+test_split: 0.15
+seed: 42
+
+# Model
+model: dsc_cnn  # options: baseline_cnn, dsc_cnn
+quantization: true
+bit_width: 8  # options: 32, 8, 4
+
+# Output
+save_dir: experiments/
