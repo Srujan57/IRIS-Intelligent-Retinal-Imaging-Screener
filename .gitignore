@@ -1,6 +1,9 @@
 # Data
 data/
 
+# Processed tensors
+data/processed/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -36,3 +36,4 @@ bit_width: 8
 
 # Output
 save_dir: experiments/
+kaggle_output_dir: /kaggle/working/experiments/
