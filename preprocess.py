@@ -46,8 +46,18 @@ def preprocess_folder(input_dir, output_dir, transform):
     os.makedirs(output_dir, exist_ok=True)
 
     processed = 0
-    for root, _dirs, filenames in os.walk(input_dir):
+    skipped = 0
+    for root, dirs, filenames in os.walk(input_dir):
+        # Skip macOS zip artifacts (__MACOSX/) entirely — they only ever
+        # contain AppleDouble resource-fork files, never real images.
+        dirs[:] = [d for d in dirs if d != "__MACOSX"]
+
         for filename in filenames:
+            # AppleDouble files ("._foo.jpeg") are metadata sidecars for
+            # "foo.jpeg", not images — PIL can't open them, skip them.
+            if filename.startswith("._"):
+                continue
+
             if filename.lower().endswith((".jpg", ".jpeg", ".png")):
                 input_path = os.path.join(root, filename)
 
@@ -59,11 +69,19 @@ def preprocess_folder(input_dir, output_dir, transform):
                 )
                 output_path = os.path.join(output_dir, out_name)
 
-                tensor = preprocess_image(input_path, transform)
+                try:
+                    tensor = preprocess_image(input_path, transform)
+                except Exception as e:
+                    # Don't let one corrupt/unreadable file kill an
+                    # 84k-image run — log it and keep going.
+                    print(f"  Skipping unreadable file {input_path}: {e}")
+                    skipped += 1
+                    continue
+
                 torch.save(tensor, output_path)
                 processed += 1
 
-    print(f"Done: {processed} images processed → {output_dir}")
+    print(f"Done: {processed} images processed, {skipped} skipped → {output_dir}")
 
 
 def resolve_dataset_dir(dataset_name, kaggle_root_hint, local_path):
