@@ -5,6 +5,7 @@ Loads raw OCT scans, resizes to config image_size,
 normalizes pixel values, and saves processed images
 ready for segmentation.
 """
+import glob
 import os
 import torch
 import yaml
@@ -35,37 +36,61 @@ def preprocess_image(image_path, transform):
 
 
 def preprocess_folder(input_dir, output_dir, transform):
+    """
+    Recursively walks input_dir so nested dataset layouts (e.g. Kermany2018's
+    kermany2018/OCT2017/train/CNV/*.jpeg structure) are found, not just files
+    sitting directly in input_dir. The subfolder path is folded into the
+    output filename so images with the same name in different subfolders
+    (e.g. two datasets both having an "img1.jpeg") don't overwrite each other.
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     processed = 0
-    for filename in os.listdir(input_dir):
-        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
-            input_path = os.path.join(input_dir, filename)
-            output_path = os.path.join(
-                output_dir,
-                filename.replace(".jpg", ".pt")
-                        .replace(".jpeg", ".pt")
-                        .replace(".png", ".pt")
-            )
-            tensor = preprocess_image(input_path, transform)
-            torch.save(tensor, output_path)
-            processed += 1
+    for root, _dirs, filenames in os.walk(input_dir):
+        for filename in filenames:
+            if filename.lower().endswith((".jpg", ".jpeg", ".png")):
+                input_path = os.path.join(root, filename)
+
+                rel_dir = os.path.relpath(root, input_dir)
+                prefix = "" if rel_dir == "." else rel_dir.replace(os.sep, "_") + "_"
+                out_name = (
+                    prefix + filename
+                    .rsplit(".", 1)[0] + ".pt"
+                )
+                output_path = os.path.join(output_dir, out_name)
+
+                tensor = preprocess_image(input_path, transform)
+                torch.save(tensor, output_path)
+                processed += 1
 
     print(f"Done: {processed} images processed → {output_dir}")
 
 
-def resolve_dataset_dir(kaggle_path, local_path):
+def resolve_dataset_dir(dataset_name, kaggle_root_hint, local_path):
     """
     Resolve each dataset's input directory independently, rather than
     switching both datasets on a single global Kaggle/local flag.
     This lets datasets live in different places at once — e.g. a large
     dataset processed on Kaggle and a smaller one processed locally.
+
+    Kaggle's mount depth for a given dataset isn't consistent — it can be
+    "/kaggle/input/<name>/" or nested several levels deeper (e.g.
+    "/kaggle/input/datasets/<owner>/<name>/") depending on how the dataset
+    was attached. Rather than hardcode one depth, search for a directory
+    named dataset_name anywhere under /kaggle/input.
     """
-    return kaggle_path if os.path.exists(kaggle_path) else local_path
+    if os.path.isdir(kaggle_root_hint):
+        matches = [
+            m for m in glob.glob(f"/kaggle/input/**/{dataset_name}", recursive=True)
+            if os.path.isdir(m)
+        ]
+        if matches:
+            return matches[0]
+    return local_path
 
 
-KERMANY_DIR = resolve_dataset_dir("/kaggle/input/kermany2018/", "data/kermany/")
-OCT5K_DIR   = resolve_dataset_dir("/kaggle/input/oct5k-iris/", "data/oct5k/")
+KERMANY_DIR = resolve_dataset_dir("kermany2018", "/kaggle/input", "data/kermany/")
+OCT5K_DIR   = resolve_dataset_dir("oct5k-iris",  "/kaggle/input", "data/oct5k/")
 
 DATASETS = [
     ("kermany", KERMANY_DIR, "data/processed/kermany"),
