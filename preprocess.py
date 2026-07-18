@@ -84,7 +84,32 @@ def preprocess_folder(input_dir, output_dir, transform):
     print(f"Done: {processed} images processed, {skipped} skipped → {output_dir}")
 
 
-def resolve_dataset_dir(dataset_name, kaggle_root_hint, local_path):
+def find_shallowest_with_subdirs(root, required_subdirs):
+    """
+    Some dataset zips (Kermany2018 included) contain the real image tree
+    duplicated inside themselves — e.g. both "kermany2018/OCT2017/" and a
+    nested re-zip artifact at "kermany2018/oct2017/OCT2017/" with the same
+    train/test/val/CNV/DME/DRUSEN/NORMAL contents. Walking the whole dataset
+    root would process every image twice. Instead, find every folder that
+    directly contains all of required_subdirs (case-insensitive, since the
+    duplicate differs only in casing) and return the shallowest match, which
+    is the real top-level copy — deeper matches are re-zip duplicates.
+    """
+    candidates = []
+    for dirpath, dirs, _files in os.walk(root):
+        dirs[:] = [d for d in dirs if d != "__MACOSX"]
+        present = {d.strip().lower() for d in dirs}
+        if required_subdirs <= present:
+            candidates.append(dirpath)
+
+    if not candidates:
+        return root
+
+    candidates.sort(key=lambda p: p.count(os.sep))
+    return candidates[0]
+
+
+def resolve_dataset_dir(dataset_name, kaggle_root_hint, local_path, dedupe_subdirs=None):
     """
     Resolve each dataset's input directory independently, rather than
     switching both datasets on a single global Kaggle/local flag.
@@ -96,6 +121,11 @@ def resolve_dataset_dir(dataset_name, kaggle_root_hint, local_path):
     "/kaggle/input/datasets/<owner>/<name>/") depending on how the dataset
     was attached. Rather than hardcode one depth, search for a directory
     named dataset_name anywhere under /kaggle/input.
+
+    dedupe_subdirs: optional set of subfolder names (e.g. {"train","test","val"})
+    used to pick the real top-level image folder when a dataset's archive
+    contains a duplicated nested copy of itself (see
+    find_shallowest_with_subdirs above).
     """
     if os.path.isdir(kaggle_root_hint):
         matches = [
@@ -103,12 +133,18 @@ def resolve_dataset_dir(dataset_name, kaggle_root_hint, local_path):
             if os.path.isdir(m)
         ]
         if matches:
-            return matches[0]
+            root = matches[0]
+            if dedupe_subdirs:
+                return find_shallowest_with_subdirs(root, dedupe_subdirs)
+            return root
     return local_path
 
 
-KERMANY_DIR = resolve_dataset_dir("kermany2018", "/kaggle/input", "data/kermany/")
-OCT5K_DIR   = resolve_dataset_dir("oct5k-iris",  "/kaggle/input", "data/oct5k/")
+KERMANY_DIR = resolve_dataset_dir(
+    "kermany2018", "/kaggle/input", "data/kermany/",
+    dedupe_subdirs={"train", "test", "val"}
+)
+OCT5K_DIR = resolve_dataset_dir("oct5k-iris", "/kaggle/input", "data/oct5k/")
 
 DATASETS = [
     ("kermany", KERMANY_DIR, "data/processed/kermany"),
